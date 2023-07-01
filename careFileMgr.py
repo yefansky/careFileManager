@@ -1,6 +1,8 @@
 import easyocr
 import cv2
 import re
+import os
+import numpy as np
 
 #统一使用半角符号
 def replace_fullwidth_symbols(text):
@@ -103,11 +105,53 @@ cases = [
     {
         'category': '处方',
         'keys': ['姓名', '科别', '日期'],
-    },             
+    }, 
+    {
+        'category': '病案',
+        'keys': ['姓名', '时间'],
+    },              
 ]
 
 reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
-result = reader.readtext(imgpath, detail=0)
-data = preprocessData(result)
-output = process_cases(data, cases)
-print(output)    
+
+def rotate_image(image):
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 边缘检测
+    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+
+    # 检测直线
+    lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+
+    if lines is not None and len(lines) >= 2:
+        # 计算旋转角度
+        angle = lines[0][0][1] * 180 / np.pi - 90
+        angle = np.clip(angle, -45, 45)  # 限制旋转角度在-45至45度之间
+
+        # 旋转图像
+        center = (image.shape[1] // 2, image.shape[0] // 2)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        rotated = cv2.warpAffine(image, matrix, (image.shape[1], image.shape[0]))
+        return rotated
+    
+    return image
+
+
+def Recognize(image):
+    img = rotate_image(image)
+    result = reader.readtext(img, detail=0)
+    data = preprocessData(result)
+    output = process_cases(data, cases)
+    print(output)
+    
+def search_and_recognize(directory):
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.jpg'):
+                file_path = os.path.join(root, file)
+                print("Processing file:", file_path)
+                cv_img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), -1)
+                Recognize(cv_img)
+
+search_and_recognize("I:\\Lab\\CareFileMgr")
