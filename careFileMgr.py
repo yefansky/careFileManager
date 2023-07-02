@@ -4,6 +4,8 @@ import re
 import os
 import numpy as np
 
+DebugFlag = False
+
 #统一使用半角符号
 def replace_fullwidth_symbols(text):
     translation_table = str.maketrans(
@@ -18,13 +20,32 @@ def preprocessData(data):
     data = [string.replace(' ', '') for string in data]
 
     #修复时间格式
+    '''
     new_data = []
     for string in data:
-        if re.search(r'\d{4}-\d{2}-\d{2}\d{2}:\d{2}', string):
-            fixed_string = re.sub(r'(\d{4}-\d{2}-\d{2})(\d{2}:\d{2})', r'\1 \2', string)
+        if re.search(r'\d{4}-\d{2}-\d{2}\d{1,2}:\d{2}', string):
+            if DebugFlag:
+                print("date format:", string)
+            fixed_string = re.sub(r'(\d{4}-\d{2}-\d{2}) (\d{1,2}:\d{2})', r'\1 0\2', string)
+            if DebugFlag:
+                print("->", fixed_string)
             new_data.append(fixed_string)
         else:
             new_data.append(string)
+    '''       
+    new_data = []
+    for string in data:
+        if re.search(r'\d{4}\d{2}\d{2}\d{1,2}:\d{2}:\d{2}', string):
+            matches = re.findall(r'(\d{4}\d{2}\d{2})(\d{1,2}:\d{2}:\d{2})', string)
+            for match in matches:
+                if DebugFlag:
+                    print("date format:", string)
+                date_part = match[0]
+                time_part = match[1]
+                fixed_time_part = re.sub(r'(\d{1}:\d{2}:\d{2})', r'0\1', time_part)
+                fixed_string = f"{date_part} {fixed_time_part}"
+                string = string.replace(f"{date_part} {time_part}", fixed_string)
+        new_data.append(string)            
     data = new_data
 
     data = [replace_fullwidth_symbols(string) for string in data]
@@ -55,11 +76,19 @@ def extract_information(data, category, keys):
 
     for item in data:
         for key in keys:
+            result[key] = "?"
+            index = 0
             for item in data:
-                if key + ':' in item:
-                    value = item.replace(key + ':', '').strip()
+                if key in item:
+                    if ":" in item:
+                        suffix = item.split(key + ':', 1)[-1].strip()
+                        value = suffix if suffix else "?"  # 处理空字符串的情况
+                    else:
+                        value = data[index + 1]
+                        
                     result[key] = value
                     break
+                index += 1
 
     return result
 
@@ -121,10 +150,10 @@ def rotate_image(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # 边缘检测
-    edges = cv2.Canny(gray, 50, 100, apertureSize=3)
+    edges = cv2.Canny(gray, 50, 80, apertureSize=3)
 
     # 检测直线
-    lines = cv2.HoughLines(edges, 1, np.pi/360, threshold=500)
+    lines = cv2.HoughLines(edges, 1, np.pi / 180 / 8, threshold=600)
     
     angle_sum = 0
     avg_angle = 0
@@ -134,56 +163,63 @@ def rotate_image(image):
         for line in lines:
             rho, theta = line[0]
             angle = np.rad2deg(theta)
-            #print("raw angle=", angle)
-            if angle <= 90:
-                angle = 90 - angle
-            else:
-                angle = -(90 - (180 - angle))
-                
-            if angle > 45: 
+            angle -= 90
+            while angle < 0:
+                angle += 360
+                            
+            if angle > 45 and angle < (90 + 45): 
                 angle -= 90
-            elif angle < -45:
-                angle += 90
+                
+        if DebugFlag:    
+            print("angle=", angle)
             
-        #print("process angle=", angle)
         angle_sum += angle
         count += 1
         avg_angle = angle_sum / count
     
     (h, w) = image.shape[:2]
     center = (w // 2, h // 2)
-    #print("avg_angle = ", avg_angle)
-    '''
-    if lines is not None:
-        for line in lines:
-            rho, theta = line[0]
-            a = np.cos(theta)
-            b = np.sin(theta)
-            x0 = a * rho
-            y0 = b * rho
-            x1 = int(x0 + 1000 * (-b))
-            y1 = int(y0 + 1000 * (a))
-            x2 = int(x0 - 1000 * (-b))
-            y2 = int(y0 - 1000 * (a))
-            cv2.line(image, (x1, y1), (x2, y2), (0, 0, 255), 2)      
-    '''
-    matrix = cv2.getRotationMatrix2D(center, -avg_angle, 1.0)
-    rotated = cv2.warpAffine(image, matrix, (w, h))
 
-    # 显示图像    
-    image2 = cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB)
-    plt.imshow(image2)
-    plt.axis('off')  # 可选：关闭坐标轴
-    plt.show()
+    if DebugFlag:
+        DebugImg = image
+        if lines is not None:
+            for line in lines:
+                rho, theta = line[0]
+                a = np.cos(theta)
+                b = np.sin(theta)
+                x0 = a * rho
+                y0 = b * rho
+                x1 = int(x0 + 1000 * (-b))
+                y1 = int(y0 + 1000 * (a))
+                x2 = int(x0 - 1000 * (-b))
+                y2 = int(y0 - 1000 * (a))
+                cv2.line(DebugImg, (x1, y1), (x2, y2), (0, 0, 255), 2)      
+
+    matrix = cv2.getRotationMatrix2D(center, -avg_angle, 1.0) #顺时针
+    rotated = cv2.warpAffine(image, matrix, (w, h))
+    if DebugFlag: 
+        # 显示图像
+        DebugImg = cv2.warpAffine(DebugImg, matrix, (w, h))    
+        DebugImg = cv2.cvtColor(DebugImg, cv2.COLOR_BGR2RGB)
+        
+        plt.subplot(121)
+        plt.imshow(edges)
+        plt.subplot(122)
+        plt.imshow(DebugImg)
+        plt.axis('off')  # 可选：关闭坐标轴
+        plt.show()
 
     return rotated
 
 
 def Recognize(image):
-    img = rotate_image(image)
-    result = reader.readtext(img, detail=0)
+    image = rotate_image(image)
+    result = reader.readtext(image, detail=0)
     data = preprocessData(result)
-    print(data)
+    
+    if DebugFlag:
+      print(data)
+      
     output = process_cases(data, cases)
     print(output)
     
@@ -199,6 +235,9 @@ def search_and_recognize(directory):
                 file_path = os.path.join(root, file)
                 singe_recognize(file_path)
 
-    
-singe_recognize("I:\\Lab\\CareFileMgr\\叶帆病历\\202306\\图像 (229).jpg")   
-#search_and_recognize("I:\\Lab\\CareFileMgr\\")
+DebugFlag=True   
+
+if DebugFlag:
+    singe_recognize("I:\\Lab\\CareFileMgr\\叶帆病历\\202306\\图像 (230).jpg")
+else: 
+    search_and_recognize("I:\\Lab\\CareFileMgr\\")
