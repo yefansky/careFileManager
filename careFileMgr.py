@@ -14,39 +14,17 @@ def replace_fullwidth_symbols(text):
     )
     return text.translate(translation_table)
 
+def filter_space(text):
+    corrected_text = re.sub(r'(?<![0-9])\s+(?![0-9])', ' ', text) #特判日期格式中间的空格
+    corrected_text = re.sub(r'\s{2,}', ' ', corrected_text)
+    corrected_text = re.sub(r'(?<=\D)\s+(?=\D)', '', corrected_text)
+    return corrected_text
+
 def preprocessData(data):
     #去除空格
     data = [string.strip() for string in data]
-    data = [string.replace(' ', '') for string in data]
-
-    #修复时间格式
-    '''
-    new_data = []
-    for string in data:
-        if re.search(r'\d{4}-\d{2}-\d{2}\d{1,2}:\d{2}', string):
-            if DebugFlag:
-                print("date format:", string)
-            fixed_string = re.sub(r'(\d{4}-\d{2}-\d{2}) (\d{1,2}:\d{2})', r'\1 0\2', string)
-            if DebugFlag:
-                print("->", fixed_string)
-            new_data.append(fixed_string)
-        else:
-            new_data.append(string)
-    '''       
-    new_data = []
-    for string in data:
-        if re.search(r'\d{4}\d{2}\d{2}\d{1,2}:\d{2}:\d{2}', string):
-            matches = re.findall(r'(\d{4}\d{2}\d{2})(\d{1,2}:\d{2}:\d{2})', string)
-            for match in matches:
-                if DebugFlag:
-                    print("date format:", string)
-                date_part = match[0]
-                time_part = match[1]
-                fixed_time_part = re.sub(r'(\d{1}:\d{2}:\d{2})', r'0\1', time_part)
-                fixed_string = f"{date_part} {fixed_time_part}"
-                string = string.replace(f"{date_part} {time_part}", fixed_string)
-        new_data.append(string)            
-    data = new_data
+    #data = [string.replace(' ', '') for string in data]
+    data = [filter_space(text) for text in data]
 
     data = [replace_fullwidth_symbols(string) for string in data]
     #处理冒号前后内容分离
@@ -144,6 +122,7 @@ cases = [
 reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
 
 import matplotlib.pyplot as plt
+import copy
 
 def rotate_image(image):
     # 转换为灰度图像
@@ -181,7 +160,7 @@ def rotate_image(image):
     center = (w // 2, h // 2)
 
     if DebugFlag:
-        DebugImg = image
+        DebugImg = copy.copy(image)
         if lines is not None:
             for line in lines:
                 rho, theta = line[0]
@@ -238,6 +217,6 @@ def search_and_recognize(directory):
 DebugFlag=True   
 
 if DebugFlag:
-    singe_recognize("I:\\Lab\\CareFileMgr\\叶帆病历\\202306\\图像 (230).jpg")
+    singe_recognize(r"I:\Lab\CareFileMgr\叶帆病历\202306\图像 (234).jpg")
 else: 
     search_and_recognize("I:\\Lab\\CareFileMgr\\")
