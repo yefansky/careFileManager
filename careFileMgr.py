@@ -3,86 +3,10 @@ import cv2
 import re
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+import copy
 
 DebugFlag = False
-
-#统一使用半角符号
-def replace_fullwidth_symbols(text):
-    translation_table = str.maketrans(
-        '：；“”‘’（）【】，。！？',  # 全角符号
-        ':;""\'\'()[],.!?'  # 对应的半角符号
-    )
-    return text.translate(translation_table)
-
-def filter_space(text):
-    corrected_text = re.sub(r'(?<![0-9])\s+(?![0-9])', ' ', text) #特判日期格式中间的空格
-    corrected_text = re.sub(r'\s{2,}', ' ', corrected_text)
-    corrected_text = re.sub(r'(?<=\D)\s+(?=\D)', '', corrected_text)
-    return corrected_text
-
-def preprocessData(data):
-    #去除空格
-    data = [string.strip() for string in data]
-    #data = [string.replace(' ', '') for string in data]
-    data = [filter_space(text) for text in data]
-
-    data = [replace_fullwidth_symbols(string) for string in data]
-    #处理冒号前后内容分离
-    new_data = []
-    i = 0
-    while i < len(data):
-        if data[i].endswith(':') and i+1 < len(data):
-            new_data.append(data[i] + data[i+1])
-            i += 2
-        else:
-            new_data.append(data[i])
-            i += 1
-    data = new_data
-    
-    return data
-
-def extract_information(data, category, keys):
-    result = None
-    
-    for item in data:
-        if category in item:
-            result = {'类别': category}
-            break
-        
-    if result == None:
-        return None
-
-    for item in data:
-        for key in keys:
-            result[key] = "?"
-            index = 0
-            for item in data:
-                if key in item:
-                    if ":" in item:
-                        suffix = item.split(key + ':', 1)[-1].strip()
-                        value = suffix if suffix else "?"  # 处理空字符串的情况
-                    else:
-                        value = data[index + 1]
-                        
-                    result[key] = value
-                    break
-                index += 1
-
-    return result
-
-def process_cases(data, cases):
-    for case in cases:
-        category = case['category']
-        keys = case['keys']
-
-        output = extract_information(data, category, keys)
-        if output:
-            return output
-
-    return None
-
-#imgpath = r"I:\\Lab\\CareFileManager\\叶帆病历\\202306\\图像 (227).jpg".encode("utf-8")
-imgpath = "I:\\Lab\\CareFileManager\\test.jpg"
 
 cases = [
     {
@@ -119,12 +43,105 @@ cases = [
     },              
 ]
 
-reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
+#统一使用半角符号
+def ReplaceFullwidthSymbols(text):
+    translation_table = str.maketrans(
+        '：；“”‘’（）【】，。！？',  # 全角符号
+        ':;""\'\'()[],.!?'  # 对应的半角符号
+    )
+    return text.translate(translation_table)
 
-import matplotlib.pyplot as plt
-import copy
+def FilterSpace(text):
+    corrected_text = re.sub(r'(?<![0-9])\s+(?![0-9])', ' ', text) #特判日期格式中间的空格
+    corrected_text = re.sub(r'\s{2,}', ' ', corrected_text)
+    corrected_text = re.sub(r'(?<=\D)\s+(?=\D)', '', corrected_text)
+    return corrected_text
 
-def rotate_image(image):
+def FilterGibberish(text):
+    filtered_text = re.sub(r'\^', '', text)
+    return filtered_text
+
+def PreprocessData(data):
+    #去除空格
+    data = [string.strip() for string in data]
+    #data = [string.replace(' ', '') for string in data]
+    data = [FilterSpace(text) for text in data]
+    
+    data = [FilterGibberish(text) for text in data]
+
+    data = [ReplaceFullwidthSymbols(string) for string in data]
+    #处理冒号前后内容分离
+    new_data = []
+    i = 0
+    while i < len(data):
+        if data[i].endswith(':') and i+1 < len(data):
+            new_data.append(data[i] + data[i+1])
+            i += 2
+        else:
+            new_data.append(data[i])
+            i += 1
+    data = new_data
+    
+    return data
+
+def ExtractInformation(data, category, keys):
+    result = None
+    
+    for item in data:
+        if category in item:
+            result = {'类别': category}
+            break
+        
+    if result == None:
+        return None
+
+    for item in data:
+        for key in keys:
+            result[key] = "?"
+            index = 0
+            for item in data:
+                if key in item:
+                    if ":" in item:
+                        suffix = item.split(key + ':', 1)[-1].strip()
+                        value = suffix if suffix else "?"  # 处理空字符串的情况
+                    else:
+                        value = data[index + 1]
+                        
+                    result[key] = value
+                    break
+                index += 1
+
+    return result
+
+def ProcessCases(data, cases):
+    for case in cases:
+        category = case['category']
+        keys = case['keys']
+
+        output = ExtractInformation(data, category, keys)
+        if output:
+            return output
+
+    return None
+
+def EnhanceImage(image):
+    # 转换为灰度图像
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 增强图像的对比度
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    # 应用自适应阈值二值化
+    _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # 使用形态学操作去除噪声和填充空洞
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+
+    return opened
+
+def RotateImage(image):
     # 转换为灰度图像
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -142,20 +159,25 @@ def rotate_image(image):
         for line in lines:
             rho, theta = line[0]
             angle = np.rad2deg(theta)
-            angle -= 90
+
+            if DebugFlag:    
+                print("raw angle=", angle)
+                
+            angle = 90 - angle    
             while angle < 0:
-                angle += 360
-                            
+                angle += 180
+            while angle >= 180:
+                angle -= 180
             if angle > 45 and angle < (90 + 45): 
                 angle -= 90
                 
-        if DebugFlag:    
-            print("angle=", angle)
+            if DebugFlag:    
+                print("angle=", angle)
             
-        angle_sum += angle
-        count += 1
+            angle_sum += angle
+            count += 1
         avg_angle = angle_sum / count
-    
+        
     (h, w) = image.shape[:2]
     center = (w // 2, h // 2)
 
@@ -190,33 +212,37 @@ def rotate_image(image):
 
     return rotated
 
-
 def Recognize(image):
-    image = rotate_image(image)
+    image = RotateImage(image)
+    #image = EnhanceImage(image)
     result = reader.readtext(image, detail=0)
-    data = preprocessData(result)
+    if DebugFlag:
+        print("ocr =", result)
+        plt.imshow(image)
+        plt.show() 
+    data = PreprocessData(result)
     
     if DebugFlag:
       print(data)
       
-    output = process_cases(data, cases)
+    output = ProcessCases(data, cases)
     print(output)
     
-def singe_recognize(file_path):
+def SingeRecognize(file_path):
     print("Processing file:", file_path)
     cv_img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), -1)
     Recognize(cv_img)    
     
-def search_and_recognize(directory):
+def SearchAndRecognize(directory):
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.endswith('.jpg'):
                 file_path = os.path.join(root, file)
-                singe_recognize(file_path)
+                SingeRecognize(file_path)
 
-DebugFlag=True   
+reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
 
 if DebugFlag:
-    singe_recognize(r"I:\Lab\CareFileMgr\叶帆病历\202306\图像 (234).jpg")
+    SingeRecognize(r"I:\Lab\CareFileMgr\叶帆病历\202306\图像 (243).jpg")
 else: 
-    search_and_recognize("I:\\Lab\\CareFileMgr\\")
+    SearchAndRecognize("I:\\Lab\\CareFileMgr\\")
